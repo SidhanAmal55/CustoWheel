@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:CustoWheel/models/customer.dart';
 import 'package:CustoWheel/screens/add_edit_customer_screen.dart';
 import 'package:CustoWheel/services/firestore_service.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ResultScreen extends StatelessWidget {
   final Customer customer;
@@ -12,7 +16,7 @@ class ResultScreen extends StatelessWidget {
     final confirm = await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Color(0xFF2C2A4A),
+        backgroundColor: const Color(0xFF2C2A4A),
         titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20),
         contentTextStyle: const TextStyle(color: Colors.white70),
         title: const Text('Delete Customer'),
@@ -85,6 +89,81 @@ class ResultScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildProfileImage(BuildContext context) {
+  final imageBytes = customer.profileImageBase64 != null && customer.profileImageBase64!.isNotEmpty
+      ? base64Decode(customer.profileImageBase64!)
+      : null;
+
+  return Column(
+    children: [
+      GestureDetector(
+        onTap: () {
+          if (imageBytes != null) {
+            showDialog(
+              context: context,
+              builder: (_) => Dialog(
+                backgroundColor: Colors.transparent,
+                child: InteractiveViewer(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(imageBytes),
+                  ),
+                ),
+              ),
+            );
+          }
+        },
+        child: CircleAvatar(
+          radius: 58,
+          backgroundImage: imageBytes != null
+              ? MemoryImage(imageBytes)
+              : const AssetImage('assets/images/profile.png') as ImageProvider,
+        ),
+      ),
+      const SizedBox(height: 10),
+      Text(
+        customer.name,
+        style: const TextStyle(
+          fontSize: 20,
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ],
+  );
+}
+
+ Widget _buildLocationLink(BuildContext context) {
+  return customer.location != null && customer.location!.isNotEmpty
+      ? InkWell(
+          onTap: () {
+            launchUrl(Uri.parse(customer.location!));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            margin: const EdgeInsets.only(top: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2A4A),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: const [
+                Icon(Icons.map, color: Color.fromARGB(255, 226, 255, 64)),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    ' Click to Open Location in Google Maps',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        )
+      : const SizedBox();
+}
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -97,12 +176,8 @@ class ResultScreen extends StatelessWidget {
           'Customer Info',
           style: TextStyle(color: Colors.white),
         ),
-        foregroundColor: Colors.white ,
+        foregroundColor: Colors.white,
         actions: [
-          // IconButton(
-          //   icon: const Icon(Icons.edit, color: Colors.white),
-          //   onPressed: () => _editCustomer(context),
-          // ),
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.white),
             onPressed: () => _confirmDelete(context),
@@ -114,12 +189,16 @@ class ResultScreen extends StatelessWidget {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              _buildInfoTile("Name", customer.name, Icons.person),
+              _buildProfileImage(context),
+              const SizedBox(height: 20),
+
               _buildInfoTile("Vehicle Number", customer.vehicleNumber, Icons.confirmation_number),
               _buildInfoTile("Vehicle Name", customer.vehicleName, Icons.directions_car),
               _buildInfoTile("Vehicle Registration", customer.registration, Icons.app_registration),
               _buildInfoTile("Amount to Give", "د.إ ${customer.cashToGive.toStringAsFixed(2)}", Icons.money),
-              _buildInfoTile("Contact", customer.contact.isEmpty ? 'N/A' : customer.contact, Icons.phone),
+              _buildInfoTile("Contact", (customer.contact == null || customer.contact!.isEmpty) ? 'N/A' : customer.contact!, Icons.phone),
+              _buildLocationLink(context),
+
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: () => _editCustomer(context),

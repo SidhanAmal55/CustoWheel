@@ -1,7 +1,22 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:CustoWheel/screens/home_screen.dart';
 import 'package:CustoWheel/models/customer.dart';
 import 'package:CustoWheel/services/firestore_service.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:CustoWheel/screens/location_picker_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+import 'dart:typed_data';
+import 'dart:convert';
+
+
 
 class AddEditCustomerScreen extends StatefulWidget {
   final Customer? existingCustomer;
@@ -20,6 +35,18 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
   final _registrationController = TextEditingController();
   final _amountController = TextEditingController();
   final _contactController = TextEditingController();
+  final _mapLinkController = TextEditingController();
+  // File? _selectedImage;
+  // String? _uploadedImageUrl;
+  // String? _photoUrl;
+  // Uint8List? _photoBytes;              // compressed bytes for preview
+  // String?    _photoBase64;             // final Base64 string to save
+  File? _selectedImage;
+  String? _photoBase64; // used instead of _uploadedImageUrl/_photoUrl
+
+
+
+
   
 
   final _vehicleNumberFocus = FocusNode();
@@ -27,6 +54,7 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
   final _registrationFocus = FocusNode();
   final _cashFocus = FocusNode();
   final _contactFocus = FocusNode();
+  final _maplinkFocus = FocusNode();
  
 
   @override
@@ -38,7 +66,10 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
       _vehicleNameController.text = widget.existingCustomer!.vehicleName;
       _registrationController.text = widget.existingCustomer!.registration;
       _amountController.text = widget.existingCustomer!.cashToGive.toString();
-      _contactController.text = widget.existingCustomer!.contact;
+      // _contactController.text = widget.existingCustome.contact;
+       _mapLinkController.text = widget.existingCustomer!.location ?? '';
+       _photoBase64= widget.existingCustomer!.profileImageBase64;
+       //_location = widget.existingCustomer!.location;
     }
   }
 
@@ -56,25 +87,163 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
     _registrationFocus.dispose(); 
     _cashFocus.dispose();
     _contactFocus.dispose();
+    _mapLinkController.dispose();
 
     super.dispose();
   }
+//   Future<void> _pickAndUploadImage() async {
+//   try {
+//     final picked = await ImagePicker().pickImage(source: ImageSource.camera);
 
-  void _saveCustomer() async {
-    if (_formKey.currentState!.validate()) {
-      final customer = Customer(
-        name: _nameController.text.trim(),
-        vehicleNumber: _vehicleNumberController.text.trim().toUpperCase(),
-        vehicleName: _vehicleNameController.text.trim(),
-        registration: _registrationController.text.trim(),
-        cashToGive: double.tryParse(_amountController.text.trim()) ?? 0.0,
-        contact: _contactController.text.trim(),
+//     if (picked != null) {
+//       setState(() {
+//         _selectedImage = File(picked.path);
+//       });
+
+//       final storageRef = FirebaseStorage.instance
+//           .ref()
+//           .child('customer_photos/${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+//       await storageRef.putFile(_selectedImage!);
+
+//       final downloadUrl = await storageRef.getDownloadURL();
+
+//       setState(() {
+//         _uploadedImageUrl = downloadUrl;
+//          _photoBase64= _uploadedImageUrl;
+//       });
+//     }
+//   } catch (e) {
+//     print('Error picking or uploading image: $e');
+//     // Optional: Show error to user via Snackbar or Dialog
+//   }
+// }
+Future<File> compressImage(File file) async {
+  final compressedImage = await FlutterImageCompress.compressAndGetFile(
+    file.absolute.path,
+    '${file.parent.path}/temp_${DateTime.now().millisecondsSinceEpoch}.jpg',
+    quality: 30,
+  );
+
+  if (compressedImage == null) {
+    throw Exception("Image compression failed");
+  }
+
+  return File(compressedImage.path); // ✅ Convert XFile to File
+}
+
+
+
+
+Future<void> _pickImageFromGallery() async {
+  try {
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 100,
+    );
+
+    if (pickedFile != null) {
+      File originalImage = File(pickedFile.path);
+      File compressedImage = await compressImage(originalImage);
+
+      final bytes = await compressedImage.readAsBytes();
+      final base64String = base64Encode(bytes);
+
+      setState(() {
+        _selectedImage = compressedImage;
+        _photoBase64 = base64String;
+      });
+
+      print("✅ Image selected and converted to base64.");
+    }
+  } catch (e) {
+    print("Error picking image from gallery: $e");
+  }
+}
+
+
+
+Future<void> _captureImageFromCamera() async {
+  try {
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 100,
+    );
+
+    if (pickedFile != null) {
+      File originalImage = File(pickedFile.path);
+      File compressedImage = await compressImage(originalImage);
+
+      final bytes = await compressedImage.readAsBytes();
+      final base64String = base64Encode(bytes);
+
+      setState(() {
+        _selectedImage = compressedImage;
+        _photoBase64 = base64String;
+      });
+
+      print("✅ Image captured and converted to base64.");
+    }
+  } catch (e) {
+    print("Error capturing image from camera: $e");
+  }
+}
+
+
+
+// Future<void> _pickLocation() async {
+//   final LatLng? selected = await Navigator.push(
+//     context,
+//     MaterialPageRoute(
+//       builder: (context) => LocationPickerScreen(),
+//     ),
+//   );
+
+//   if (selected != null) {
+//     setState(() {
+//       _location = GeoPoint(selected.latitude, selected.longitude);
+//     });
+
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Location selected')),
+//     );
+//   }
+// }
+
+
+
+
+
+  
+
+ void _saveCustomer() async {
+  if (_formKey.currentState!.validate()) {
+    // Ensure image is picked and uploaded before saving
+    if (_photoBase64== null || _photoBase64!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload a profile photo.')),
       );
+      return;
+    }
 
+    final customer = Customer(
+      name: _nameController.text.trim(),
+      vehicleNumber: _vehicleNumberController.text.trim().toUpperCase(),
+      vehicleName: _vehicleNameController.text.trim(),
+      registration: _registrationController.text.trim(),
+      cashToGive: double.tryParse(_amountController.text.trim()) ?? 0.0,
+      contact: _contactController.text.trim(),
+      profileImageBase64: _photoBase64,
+      location: _mapLinkController.text.trim().isNotEmpty
+          ? _mapLinkController.text.trim()
+          : null,
+    );
+
+    try {
       await FirestoreService.addOrUpdateCustomer(customer);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Customer saved!')),
+        const SnackBar(content: Text('Customer saved successfully!')),
       );
 
       Navigator.pushAndRemoveUntil(
@@ -82,8 +251,13 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
         MaterialPageRoute(builder: (_) => const HomeScreen()),
         (route) => false,
       );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save customer: $e')),
+      );
     }
   }
+}
 
   Widget _buildCard({
     required String title,
@@ -157,18 +331,21 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
                     controller: _nameController,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) =>
-                        FocusScope.of(context).requestFocus(_vehicleNumberFocus),
+                        FocusScope.of(context).requestFocus(_contactFocus),
                     decoration: _inputDecoration('Customer Name'),
                     validator: (value) => value!.isEmpty ? 'Required' : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: _contactController,
-                    focusNode: _contactFocus,
                     textInputAction: TextInputAction.next,
-                    keyboardType: TextInputType.phone,
-                    decoration: _inputDecoration('Contact (Optional)'),
+                    onFieldSubmitted: (_) =>
+                        FocusScope.of(context).requestFocus(_vehicleNumberFocus),
+                    decoration: _inputDecoration('Contact  (Optional)'),
+                    validator: (value) => value!.isEmpty ? 'Required' : null,
                   ),
+                  
+
                 ],
               ),
               _buildCard(
@@ -201,12 +378,51 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
                     focusNode: _registrationFocus,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) =>
-                    FocusScope.of(context).requestFocus(_cashFocus),
+                    FocusScope.of(context).requestFocus(_maplinkFocus),
                     decoration: _inputDecoration(' Vehicle Registration (Full Capital)'),
                     validator: (value) => value!.isEmpty ? 'Required' : null,
                   ),
                 ],
               ),
+              _buildCard(
+  title: "Location Details",
+  icon: Icons.location_city,
+  bgColor: const Color.fromARGB(255, 243, 201, 246),
+  children: [
+    TextFormField(
+      controller: _mapLinkController,
+      focusNode: _maplinkFocus,
+      textInputAction: TextInputAction.next,
+      onFieldSubmitted: (_) =>
+          FocusScope.of(context).requestFocus(_cashFocus),
+      decoration: _inputDecoration('Google Map Link'),
+      validator: (value) => value!.isEmpty ? 'Required' : null,
+    ),
+    const SizedBox(height: 10),
+    Align(
+      alignment: Alignment.centerLeft,
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          final url = Uri.parse('https://www.google.com/maps');
+          if (await canLaunchUrl(url)) {
+            await launchUrl(url, mode: LaunchMode.externalApplication);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Could not open Google Maps")),
+            );
+          }
+        },
+        icon: const Icon(Icons.map),
+        label: const Text("Open Google Maps"),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.blue,
+        ),
+      ),
+    ),
+  ],
+),
+
               _buildCard(
                 title: "Payment Details",
                 icon: Icons.payment_outlined,
@@ -222,6 +438,47 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 20,),
+             Row(
+  mainAxisAlignment: MainAxisAlignment.center,
+  children: [
+    IconButton(
+      onPressed: _pickImageFromGallery, // 📁 Pick from gallery
+      icon: const Icon(Icons.image, color: Colors.white, size: 50),
+      tooltip: 'Pick from Gallery',
+    ),
+    const SizedBox(width: 16),
+    IconButton(
+      onPressed: _captureImageFromCamera, // 📸 Take photo
+      icon: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 50),
+      tooltip: 'Capture from Camera',
+    ),
+  ],
+),
+
+const SizedBox(height: 20),
+
+// SizedBox(
+//   width: double.infinity,
+//   child: ElevatedButton.icon(
+//     icon: const Icon(Icons.location_on),
+//     label: const Text('Set Location'),
+//      onPressed: _pickLocation,
+//     style: ElevatedButton.styleFrom(
+//       padding: const EdgeInsets.symmetric(vertical: 16),
+//     ),
+//   ),
+// ),
+// if (_location != null)
+//   Padding(
+//     padding: const EdgeInsets.only(top: 10),
+//     child: Text(
+//       "Location: ${_location!.latitude.toStringAsFixed(5)}, ${_location!.longitude.toStringAsFixed(5)}",
+//       style: const TextStyle(color: Colors.white70),
+//     ),
+//   ),
+
+
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _saveCustomer,
@@ -244,3 +501,4 @@ class _AddEditCustomerScreenState extends State<AddEditCustomerScreen> {
     );
   }
 }
+
